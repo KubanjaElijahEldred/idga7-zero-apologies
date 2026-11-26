@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
-// IDGA7 — procedural cinematic bottle scene (vanilla Three.js).
-// No model downloads: the bottle, cap, label, wolf emblem and smoke are all
-// generated at runtime. Lazy-loaded so it never blocks first paint.
+// IDGA7 — image-driven cinematic 3D scene.
+// The 3D object is built from the supplied bottle photography itself: the
+// image is mapped onto a gently curved, subdivided surface with brightness
+// relief, layered over a parallax backdrop with smoke and a neon ring.
 // ---------------------------------------------------------------------------
 
 let THREE = null
@@ -11,39 +12,13 @@ const loadThree = async () => {
   return true
 }
 
-const makeLabelTexture = (variant) => {
-  const canvas = document.createElement('canvas')
-  canvas.width = 512
-  canvas.height = 256
-  const ctx = canvas.getContext('2d')
-  ctx.fillStyle = variant === 'pink' ? '#16060d' : '#07080a'
-  ctx.fillRect(0, 0, 512, 256)
-
-  ctx.strokeStyle = variant === 'pink' ? '#ff4f9a' : '#d9dee6'
-  ctx.lineWidth = 3
-  ctx.strokeRect(14, 14, 484, 228)
-
-  ctx.textAlign = 'center'
-  ctx.fillStyle = '#ffffff'
-  ctx.font = '700 92px Cinzel, Georgia, serif'
-  ctx.fillText('IDGA7', 256, 125)
-  ctx.fillStyle = variant === 'pink' ? '#ff6fae' : '#c9d0da'
-  ctx.font = '500 22px Inter, Arial, sans-serif'
-  ctx.letterSpacing = '10px'
-  ctx.fillText('ZERO APOLOGIES', 256, 170)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
 const makeSmokeTexture = () => {
   const canvas = document.createElement('canvas')
   canvas.width = 128
   canvas.height = 128
   const ctx = canvas.getContext('2d')
   const gradient = ctx.createRadialGradient(64, 64, 2, 64, 64, 64)
-  gradient.addColorStop(0, 'rgba(255,255,255,0.28)')
+  gradient.addColorStop(0, 'rgba(255,255,255,0.3)')
   gradient.addColorStop(0.45, 'rgba(255,255,255,0.09)')
   gradient.addColorStop(1, 'rgba(255,255,255,0)')
   ctx.fillStyle = gradient
@@ -51,13 +26,21 @@ const makeSmokeTexture = () => {
   return new THREE.CanvasTexture(canvas)
 }
 
-const bottleProfile = () => {
-  // x = radius, y = height. Smooth shoulders, long neck, premium proportions.
-  return [
-    [0.00, -1.30], [0.42, -1.30], [0.46, -1.24], [0.46, -0.86],
-    [0.44, -0.74], [0.40, -0.55], [0.28, -0.30], [0.20, -0.10],
-    [0.16, 0.18], [0.16, 0.98], [0.19, 1.02], [0.19, 1.12], [0.00, 1.12],
-  ].map(([x, y]) => new THREE.Vector2(x, y))
+// Bow a flat plane towards the camera so a flat photograph gains real depth.
+const bowGeometry = (width, height, segments = 48, bow = 0.42) => {
+  const geometry = new THREE.PlaneGeometry(width, height, segments, segments)
+  const positions = geometry.attributes.position
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = positions.getX(i)
+    const y = positions.getY(i)
+    const nx = x / (width / 2)
+    const ny = y / (height / 2)
+    const z = bow * (1 - nx * nx) * (1 - ny * ny * 0.35)
+    positions.setZ(i, z)
+  }
+  positions.needsUpdate = true
+  geometry.computeVertexNormals()
+  return geometry
 }
 
 export const initBottleScene = async (host, { variant = 'original', hero = false } = {}) => {
@@ -71,6 +54,9 @@ export const initBottleScene = async (host, { variant = 'original', hero = false
 
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false
   const isPink = variant === 'pink'
+  const bottleImage = isPink ? '/assets/bottle-pink.jpg' : '/assets/bottle-original.jpg'
+  const backdropImage = isPink ? '/assets/hero.jpg' : '/assets/story.jpg'
+  const accent = isPink ? 0xff4f9a : 0xd9dee6
 
   let renderer
   try {
@@ -82,124 +68,113 @@ export const initBottleScene = async (host, { variant = 'original', hero = false
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.setClearColor(0x000000, 0)
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.15
+  renderer.toneMappingExposure = 1.05
   renderer.domElement.className = 'idga7-canvas'
   renderer.domElement.setAttribute('aria-hidden', 'true')
   host.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100)
-  camera.position.set(0, 0.1, hero ? 5.6 : 5.2)
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100)
+  camera.position.set(0, 0, hero ? 5.4 : 5.0)
   camera.lookAt(0, 0, 0)
 
-  // Cinematic lighting — cold chrome for Original, hot pink for Pink Lemonade.
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x101018, 0.75))
-  const key = new THREE.DirectionalLight(0xffffff, 3.2)
-  key.position.set(2.6, 4, 4)
-  key.castShadow = true
-  key.shadow.mapSize.set(512, 512)
-  key.shadow.camera.left = -3
-  key.shadow.camera.right = 3
-  key.shadow.camera.top = 3
-  key.shadow.camera.bottom = -3
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x08080c, 1.4))
+  const key = new THREE.DirectionalLight(0xffffff, 2.4)
+  key.position.set(2.5, 4, 5)
   scene.add(key)
-  const rim = new THREE.DirectionalLight(isPink ? 0xff3d8b : 0xcfe4ff, 2.4)
-  rim.position.set(-3.5, 1.5, -3)
+  const rim = new THREE.DirectionalLight(accent, 2.0)
+  rim.position.set(-3, 1.5, -2)
   scene.add(rim)
-  const fill = new THREE.PointLight(isPink ? 0xff6fae : 0x9fb6d4, 1.6, 12)
-  fill.position.set(2.5, -1, 2.5)
-  scene.add(fill)
+  const glowLight = new THREE.PointLight(accent, 1.6, 12)
+  glowLight.position.set(0, -1.4, 1.6)
+  scene.add(glowLight)
 
-  const bottleGroup = new THREE.Group()
-  scene.add(bottleGroup)
+  const loader = new THREE.TextureLoader()
+  const bottleTexture = loader.load(bottleImage)
+  bottleTexture.colorSpace = THREE.SRGBColorSpace
+  bottleTexture.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 1
+  const backdropTexture = loader.load(backdropImage)
+  backdropTexture.colorSpace = THREE.SRGBColorSpace
 
-  const glassMaterial = isPink
-    ? new THREE.MeshPhysicalMaterial({
-      color: 0xff4f9a, metalness: 0.35, roughness: 0.18,
-      clearcoat: 1, clearcoatRoughness: 0.08, transmission: 0.08, transparent: true, opacity: 0.96,
-    })
-    : new THREE.MeshPhysicalMaterial({
-      color: 0xdfe5ee, metalness: 0.92, roughness: 0.14,
-      clearcoat: 1, clearcoatRoughness: 0.06,
-    })
+  const world = new THREE.Group()
+  scene.add(world)
 
-  const bottle = new THREE.Mesh(new THREE.LatheGeometry(bottleProfile(), 64), glassMaterial)
-  bottle.castShadow = true
-  bottleGroup.add(bottle)
-
-  // Label band sits on the body of the bottle.
-  const labelTexture = makeLabelTexture(variant)
-  const label = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.468, 0.468, 0.66, 64, 1, true),
-    new THREE.MeshStandardMaterial({ map: labelTexture, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }),
+  // Parallax backdrop from the supplied lifestyle imagery.
+  const backdrop = new THREE.Mesh(
+    new THREE.PlaneGeometry(9, 7),
+    new THREE.MeshBasicMaterial({ map: backdropTexture, transparent: true, opacity: 0.22, depthWrite: false }),
   )
-  label.position.y = -0.52
-  bottleGroup.add(label)
+  backdrop.position.set(0, 0, -3.2)
+  scene.add(backdrop)
 
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.2, 0.28, 40),
-    new THREE.MeshPhysicalMaterial({ color: isPink ? 0x1a0a11 : 0x111418, metalness: 0.85, roughness: 0.22, clearcoat: 1 }),
+  // The bottle photograph itself becomes the 3D surface. Using the same map
+  // as a displacement map lifts the bright bottle/smoke out of the black.
+  const surface = new THREE.Mesh(
+    bowGeometry(hero ? 3.7 : 3.4, hero ? 3.7 : 3.4),
+    new THREE.MeshStandardMaterial({
+      map: bottleTexture,
+      displacementMap: bottleTexture,
+      displacementScale: 0.1,
+      displacementBias: -0.045,
+      roughness: 0.82,
+      metalness: 0.06,
+      side: THREE.DoubleSide,
+      transparent: true,
+    }),
   )
-  cap.position.y = 1.22
-  bottleGroup.add(cap)
+  world.add(surface)
 
-  const neckRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.185, 0.018, 10, 40),
-    new THREE.MeshStandardMaterial({ color: isPink ? 0xff8fc0 : 0xf0f4fa, metalness: 0.95, roughness: 0.18 }),
+  // A soft duplicate behind the surface adds parallax depth on rotation.
+  const echo = new THREE.Mesh(
+    bowGeometry(3.8, 3.8, 32, 0.3),
+    new THREE.MeshBasicMaterial({ map: bottleTexture, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide }),
   )
-  neckRing.rotation.x = Math.PI / 2
-  neckRing.position.y = 0.96
-  bottleGroup.add(neckRing)
+  echo.position.z = -0.45
+  world.add(echo)
 
-  // Wolf emblem emerging through shadow behind the bottle.
-  const textureLoader = new THREE.TextureLoader()
-  const emblemTexture = textureLoader.load('/assets/emblem.png')
-  emblemTexture.colorSpace = THREE.SRGBColorSpace
-  const emblem = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.9, 2.9),
-    new THREE.MeshBasicMaterial({ map: emblemTexture, transparent: true, opacity: 0.32, depthWrite: false }),
+  // Neon ring from the photography, rebuilt as emissive geometry.
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.18, 0.018, 10, 72),
+    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.85 }),
   )
-  emblem.position.set(0, 0.35, -2.2)
-  scene.add(emblem)
+  ring.rotation.x = Math.PI / 2
+  ring.position.y = -1.55
+  world.add(ring)
 
-  // Smoke / atmosphere particles.
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(1.18, 0.12, 10, 72),
+    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.12, depthWrite: false }),
+  )
+  halo.rotation.x = Math.PI / 2
+  halo.position.y = -1.55
+  world.add(halo)
+
+  // Smoke particles drifting over the image.
   const smokeTexture = makeSmokeTexture()
   const smokeCount = hero ? 90 : 45
   const smokePositions = new Float32Array(smokeCount * 3)
   for (let i = 0; i < smokeCount; i += 1) {
     smokePositions[i * 3] = (Math.random() - 0.5) * 5
-    smokePositions[i * 3 + 1] = (Math.random() - 0.5) * 3.5
-    smokePositions[i * 3 + 2] = (Math.random() - 0.5) * 2.5 - 1
+    smokePositions[i * 3 + 1] = (Math.random() - 0.5) * 4
+    smokePositions[i * 3 + 2] = (Math.random() - 0.5) * 1.5
   }
   const smokeGeometry = new THREE.BufferGeometry()
   smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3))
   const smoke = new THREE.Points(
     smokeGeometry,
     new THREE.PointsMaterial({
-      map: smokeTexture, transparent: true, opacity: isPink ? 0.16 : 0.12,
-      depthWrite: false, blending: THREE.AdditiveBlending, size: 0.85, sizeAttenuation: true,
-      color: isPink ? 0xff9ac6 : 0xa9c4e6,
+      map: smokeTexture, transparent: true, opacity: isPink ? 0.18 : 0.14,
+      depthWrite: false, blending: THREE.AdditiveBlending, size: 0.9,
+      sizeAttenuation: true, color: isPink ? 0xff9ac6 : 0xbcd0e8,
     }),
   )
   scene.add(smoke)
 
-  // Ground reflection strip keeps the bottle grounded without a heavy floor.
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(1.25, 48),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }),
-  )
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -1.31
-  ground.scale.set(1, 0.35, 1)
-  scene.add(ground)
-
   const resize = () => {
-    const width = host.clientWidth || 600
-    const height = host.clientHeight || 600
+    const width = host.clientWidth || 700
+    const height = host.clientHeight || 700
     renderer.setSize(width, height, false)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
@@ -209,27 +184,30 @@ export const initBottleScene = async (host, { variant = 'original', hero = false
   observer?.observe(host)
   window.addEventListener('resize', resize)
 
-  // Drag to rotate, wheel to zoom.
-  const state = { dragging: false, lastX: 0, rotation: 0, targetRotation: 0, zoom: camera.position.z }
-  const onPointerDown = (event) => {
+  // Drag rotates the image-based 3D card; wheel zooms.
+  const state = { dragging: false, lastX: 0, lastY: 0, rotY: 0, targetY: 0, rotX: 0, targetX: 0, zoom: camera.position.z }
+  const onDown = (event) => {
     state.dragging = true
     state.lastX = event.clientX
+    state.lastY = event.clientY
     host.setPointerCapture?.(event.pointerId)
   }
-  const onPointerMove = (event) => {
+  const onMove = (event) => {
     if (!state.dragging) return
-    state.targetRotation += (event.clientX - state.lastX) * 0.012
+    state.targetY = THREE.MathUtils.clamp(state.targetY + (event.clientX - state.lastX) * 0.005, -0.75, 0.75)
+    state.targetX = THREE.MathUtils.clamp(state.targetX + (event.clientY - state.lastY) * 0.003, -0.35, 0.35)
     state.lastX = event.clientX
+    state.lastY = event.clientY
   }
-  const onPointerUp = () => { state.dragging = false }
+  const onUp = () => { state.dragging = false }
   const onWheel = (event) => {
     event.preventDefault()
-    state.zoom = Math.max(3.6, Math.min(7.2, state.zoom + event.deltaY * 0.004))
+    state.zoom = Math.max(3.8, Math.min(7.5, state.zoom + event.deltaY * 0.004))
   }
-  host.addEventListener('pointerdown', onPointerDown)
-  host.addEventListener('pointermove', onPointerMove)
-  host.addEventListener('pointerup', onPointerUp)
-  host.addEventListener('pointercancel', onPointerUp)
+  host.addEventListener('pointerdown', onDown)
+  host.addEventListener('pointermove', onMove)
+  host.addEventListener('pointerup', onUp)
+  host.addEventListener('pointercancel', onUp)
   host.addEventListener('wheel', onWheel, { passive: false })
 
   const clock = new THREE.Clock()
@@ -238,17 +216,21 @@ export const initBottleScene = async (host, { variant = 'original', hero = false
   const animate = () => {
     if (disposed) return
     const t = clock.getElapsedTime()
-    if (!state.dragging && !reducedMotion) state.targetRotation += 0.0035
-    state.rotation += (state.targetRotation - state.rotation) * 0.08
-    bottleGroup.rotation.y = state.rotation
-    bottleGroup.position.y = reducedMotion ? 0 : Math.sin(t * 0.7) * 0.035
+    const sway = reducedMotion ? 0 : Math.sin(t * 0.45) * 0.07
+    state.rotY += (state.targetY + sway - state.rotY) * 0.06
+    state.rotX += (state.targetX - state.rotX) * 0.06
+    world.rotation.y = state.rotY
+    world.rotation.x = state.rotX
+    world.position.y = reducedMotion ? 0 : Math.sin(t * 0.7) * 0.04
+    echo.position.x = Math.sin(t * 0.35) * 0.08
+    backdrop.position.x = Math.sin(t * 0.2) * 0.2
+    ring.material.opacity = 0.7 + Math.sin(t * 1.6) * 0.15
     camera.position.z += (state.zoom - camera.position.z) * 0.08
-    emblem.material.opacity = (reducedMotion ? 0.32 : 0.26 + Math.sin(t * 0.5) * 0.06)
     if (!reducedMotion) {
       const positions = smoke.geometry.attributes.position.array
       for (let i = 0; i < smokeCount; i += 1) {
-        positions[i * 3 + 1] += 0.0016 + (i % 5) * 0.0003
-        if (positions[i * 3 + 1] > 2) positions[i * 3 + 1] = -2
+        positions[i * 3 + 1] += 0.002 + (i % 5) * 0.0004
+        if (positions[i * 3 + 1] > 2.2) positions[i * 3 + 1] = -2.2
       }
       smoke.geometry.attributes.position.needsUpdate = true
     }
@@ -262,19 +244,19 @@ export const initBottleScene = async (host, { variant = 'original', hero = false
     window.cancelAnimationFrame(frameId)
     observer?.disconnect()
     window.removeEventListener('resize', resize)
-    host.removeEventListener('pointerdown', onPointerDown)
-    host.removeEventListener('pointermove', onPointerMove)
-    host.removeEventListener('pointerup', onPointerUp)
-    host.removeEventListener('pointercancel', onPointerUp)
+    host.removeEventListener('pointerdown', onDown)
+    host.removeEventListener('pointermove', onMove)
+    host.removeEventListener('pointerup', onUp)
+    host.removeEventListener('pointercancel', onUp)
     host.removeEventListener('wheel', onWheel)
     scene.traverse((object) => {
       object.geometry?.dispose?.()
       if (Array.isArray(object.material)) object.material.forEach((m) => m.dispose?.())
       else object.material?.dispose?.()
     })
-    labelTexture.dispose()
+    bottleTexture.dispose()
+    backdropTexture.dispose()
     smokeTexture.dispose()
-    emblemTexture.dispose()
     renderer.dispose()
     renderer.domElement.remove()
   }
