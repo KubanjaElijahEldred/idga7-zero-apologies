@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050505" />
+    <meta name="description" content="IDGA7 Premium Vodka — Zero Apologies. A cinematic world of boldness, luxury and individuality." />
+    <title>IDGA7 — Zero Apologies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; background: #050505; }
+      #root { min-height: 100vh; }
+      #boot {
+        position: fixed; inset: 0; z-index: 999; background: #050505; color: #fff;
+        display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+        font-family: Inter, sans-serif; letter-spacing: .3em; font-size: 11px; text-transform: uppercase;
+        transition: opacity .7s ease;
+      }
+      #boot.is-gone { opacity: 0; pointer-events: none; }
+      #boot .mark { font-family: Cinzel, serif; font-size: 26px; letter-spacing: .34em; }
+      #boot .bar { width: 160px; height: 2px; background: #222; overflow: hidden; }
+      #boot .bar i { display: block; height: 100%; width: 0; background: #e9e9e9; animation: bootfill 2.2s ease forwards; }
+      @keyframes bootfill { to { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <div id="boot">
+      <div class="mark">IDGA7</div>
+      <div class="bar"><i></i></div>
+      <div>Entering the world of IDGA7</div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      window.setTimeout(function () {
+        var b = document.getElementById('boot')
+        if (b) { b.classList.add('is-gone'); window.setTimeout(function () { b.remove() }, 800) }
+      }, 2600)
+    </script>
+  </body>
+</html>
